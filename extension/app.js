@@ -1077,15 +1077,7 @@ async function renderStaticDashboard() {
   // --- Group tabs by domain ---
   // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
   // so they can be closed together without affecting content tabs on the same domain.
-  const LANDING_PAGE_PATTERNS = [
-    { hostname: 'mail.google.com', test: (p, h) =>
-        !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
-    { hostname: 'www.linkedin.com',    pathExact: ['/'] },
-    { hostname: 'github.com',          pathExact: ['/'] },
-    { hostname: 'www.youtube.com',     pathExact: ['/'] },
-    // Merge personal patterns from config.local.js (if it exists)
-    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
-  ];
+  const LANDING_PAGE_PATTERNS = [];;
 
   function isLandingPage(url) {
     try {
@@ -1631,26 +1623,26 @@ async function hydrateFavicons(root) {
     if (!root) return;
     const imgs = Array.from(root.querySelectorAll('img[data-favicon-url]'));
     if (!imgs.length) return;
-    const hostCache = {};
+    const byHost = new Map();
     for (const img of imgs) {
       const pageUrl = img.getAttribute('data-favicon-url');
-      if (!pageUrl) continue;
       let host = '';
       try { host = new URL(pageUrl).hostname; } catch {}
-      let dataUrl = syncFavicon(pageUrl);
-      if (!dataUrl && host) {
-        if (hostCache[host] === undefined) {
-          hostCache[host] = await faviconForUrl('https://' + host + '/');
-        }
-        dataUrl = hostCache[host];
-      }
-      if (dataUrl) {
-        img.src = dataUrl;
-      } else {
-        img.style.display = 'none';
-      }
       img.removeAttribute('data-favicon-url');
+      if (!host) { img.style.display = 'none'; continue; }
+      if (!byHost.has(host)) byHost.set(host, []);
+      byHost.get(host).push(img);
     }
+    await Promise.all(Array.from(byHost.entries()).map(async function (entry) {
+      const host = entry[0];
+      const list = entry[1];
+      let dataUrl = syncFavicon('https://' + host + '/');
+      if (!dataUrl) dataUrl = await faviconForUrl('https://' + host + '/');
+      list.forEach(function (img) {
+        if (dataUrl) img.src = dataUrl;
+        else img.style.display = 'none';
+      });
+    }));
   } catch {}
 }
 

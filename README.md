@@ -23,6 +23,12 @@
 
 ## 更新记录
 
+- **v1.1.2**
+  - 取消「常用主页」归并逻辑：所有标签页统一按域名分组，X/GitHub 等主页不会再被并进同一个卡片
+  - favicon 并行加载，同时打开大量标签页时图标补全更快
+  - 内置 40+ 常用网站图标，多数站点离线也能显示图标
+  - README 截图改为只展示产品界面本身
+
 - **v1.1.1**
   - 修复：X / Twitter 主页（x.com/home）之前被归入「常用主页」分组、看起来像"没显示"的问题，现在 X 会单独显示为一张卡片
   - 新增：标签页行会显示对应网站的图标（内置常用站点 + 首次加载后本地缓存）
@@ -32,15 +38,14 @@
 
 | 黑夜模式 | 白天模式 |
 | --- | --- |
-| ![黑夜](screenshots/dark.png) | ![白天](screenshots/light.png) |
+| ![黑夜模式](screenshots/dark.png) | ![白天模式](screenshots/light.png) |
 
-| 同类标签页分组 | 大量常用网站 |
-| --- | --- |
-| ![分组](screenshots/grouped-tabs.png) | ![快捷访问](screenshots/quick-access.png) |
+同时打开 50 个常用网站（54 个域名 / 59 个标签页）时的分组效果：
 
-带网站图标与 X 卡片的效果：
+![大量标签页分组](screenshots/many-sites.png)
 
-![X 卡片与图标](screenshots/x-card-favicons.png)
+> 以上截图仅展示扩展页面本身，不包含浏览器标签栏、地址栏、书签栏等个人信息。
+
 
 ## 安装方法（Chrome / Edge）
 
