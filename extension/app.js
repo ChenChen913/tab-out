@@ -15,6 +15,47 @@
 
 'use strict';
 
+/* ----------------------------------------------------------------
+   本地 FAVICON 缓存
+   通过 Chrome 自带的 favicon 缓存读取（_favicon，本地、不联网），
+   首次读取后转成 base64 存入 chrome.storage.local，以后直接读本地。
+   ---------------------------------------------------------------- */
+function localFaviconUrl(url, size) {
+  try {
+    if (!url) return '';
+    return chrome.runtime.getURL('/_favicon/?page_url=' + encodeURIComponent(String(url)) + '&size=' + (size || 64) + '&scale_factor=1x');
+  } catch { return ''; }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function getCachedFavicon(url) {
+  try {
+    if (!url) return '';
+    const key = 'favicon:v4:' + url;
+    const store = await chrome.storage.local.get(key);
+    if (store[key]) return store[key];
+    const src = localFaviconUrl(url, 64);
+    if (!src) return '';
+    const res = await fetch(src);
+    if (!res.ok) return '';
+    const blob = await res.blob();
+    if (!blob || blob.size < 16) return '';
+    const dataUrl = await blobToDataUrl(blob);
+    await chrome.storage.local.set({ [key]: dataUrl });
+    return dataUrl;
+  } catch { return ''; }
+}
+
+
+
 
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
@@ -461,8 +502,8 @@ function checkAndShowEmptyState() {
           <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
         </svg>
       </div>
-      <div class="empty-title">Inbox zero, but for tabs.</div>
-      <div class="empty-subtitle">You're free.</div>
+      <div class="empty-title">所有标签页已关闭。</div>
+      <div class="empty-subtitle">清净了。</div>
     </div>
   `;
 
@@ -484,33 +525,36 @@ function timeAgo(dateStr) {
   const diffHours = Math.floor((now - then) / 3600000);
   const diffDays  = Math.floor((now - then) / 86400000);
 
-  if (diffMins < 1)   return 'just now';
-  if (diffMins < 60)  return diffMins + ' min ago';
-  if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
-  if (diffDays === 1) return 'yesterday';
-  return diffDays + ' days ago';
+  if (diffMins < 1)   return '刚刚';
+  if (diffMins < 60)  return diffMins + ' 分钟前';
+  if (diffHours < 24) return diffHours + ' 小时前';
+  if (diffDays === 1) return '昨天';
+  return diffDays + ' 天前';
 }
 
 /**
- * getGreeting() — "Good morning / afternoon / evening"
+ * getGreeting() — "早上好 / 下午好 / 晚上好"
  */
 function getGreeting() {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (hour < 6)  return '夜深了';
+  if (hour < 12) return '早上好';
+  if (hour < 14) return '中午好';
+  if (hour < 18) return '下午好';
+  return '晚上好';
 }
 
 /**
- * getDateDisplay() — "Friday, April 4, 2026"
+ * getDateDisplay() — "2026年4月15日 星期三"
  */
 function getDateDisplay() {
-  return new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year:    'numeric',
-    month:   'long',
-    day:     'numeric',
-  });
+  const now = new Date();
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  const w = weekdays[now.getDay()];
+  return `${y}年${m}月${d}日 ${w}`;
 }
 
 
@@ -767,15 +811,15 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = syncFavicon(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="稍后查看">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="关闭此标签页">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -815,12 +859,12 @@ function renderDomainCard(group) {
 
   const tabBadge = `<span class="open-tabs-badge">
     ${ICONS.tabs}
-    ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
+    ${tabCount} 个标签页
   </span>`;
 
   const dupeBadge = hasDupes
     ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
-        ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        ${totalExtras} 个重复
       </span>`
     : '';
 
@@ -848,15 +892,15 @@ function renderDomainCard(group) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = syncFavicon(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="稍后查看">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="关闭此标签页">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -866,14 +910,14 @@ function renderDomainCard(group) {
   let actionsHtml = `
     <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
       ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
+      关闭全部 ${tabCount} 个标签页
     </button>`;
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
     actionsHtml += `
       <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
-        Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        关闭 ${totalExtras} 个重复标签页
       </button>`;
   }
 
@@ -932,7 +976,7 @@ async function renderDeferredColumn() {
 
     // Render active checklist items
     if (active.length > 0) {
-      countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
+      countEl.textContent = `${active.length} 个`;
       list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
       list.style.display = 'block';
       empty.style.display = 'none';
@@ -966,7 +1010,7 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const faviconUrl = syncFavicon(item.url);
   const ago = timeAgo(item.savedAt);
 
   return `
@@ -1149,8 +1193,8 @@ async function renderStaticDashboard() {
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
 
   if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = '当前标签页';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} 个域名 &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} 关闭全部 ${realTabs.length} 个标签页</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1188,6 +1232,67 @@ document.addEventListener('click', async (e) => {
 
   const action = actionEl.dataset.action;
 
+  // ---- Delete a quick access site ----
+  if (action === 'qa-delete') {
+    e.preventDefault();
+    e.stopPropagation();
+    const qaId = actionEl.dataset.qaId;
+    if (qaId) await handleQaDelete(qaId);
+    return;
+  }
+
+  // ---- Open inline edit form for a tile ----
+  if (action === 'qa-edit-tile') {
+    e.preventDefault();
+    e.stopPropagation();
+    const qaId = actionEl.dataset.qaId;
+    // Hide any other open inline edit forms first
+    document.querySelectorAll('.qa-inline-edit').forEach(el => {
+      if (el.id !== `qa-inline-edit-${qaId}`) el.style.display = 'none';
+    });
+    const form = document.getElementById(`qa-inline-edit-${qaId}`);
+    if (form) {
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      if (form.style.display === 'block') {
+        form.querySelector('.qa-inline-name')?.focus();
+      }
+    }
+    return;
+  }
+
+  // ---- Save inline edit ----
+  if (action === 'qa-save-edit') {
+    e.preventDefault();
+    e.stopPropagation();
+    const qaId = actionEl.dataset.qaId;
+    const form = document.getElementById(`qa-inline-edit-${qaId}`);
+    if (!form) return;
+    const name = form.querySelector('.qa-inline-name')?.value.trim();
+    let   url  = form.querySelector('.qa-inline-url')?.value.trim();
+    if (!name) { form.querySelector('.qa-inline-name')?.focus(); showToast('请输入网站名称'); return; }
+    if (!url)  { form.querySelector('.qa-inline-url')?.focus();  showToast('请输入网址');     return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    try { new URL(url); } catch { showToast('网址格式不正确'); return; }
+
+    let sites = await getQuickAccessSites();
+    const site  = sites.find(s => s.id === qaId);
+    if (site) { site.name = name; site.url = url; }
+    await saveQuickAccessSites(sites);
+    await renderQuickAccess();
+    showToast(`已更新 ${name}`);
+    return;
+  }
+
+  // ---- Cancel inline edit ----
+  if (action === 'qa-cancel-edit') {
+    e.preventDefault();
+    e.stopPropagation();
+    const qaId = actionEl.dataset.qaId;
+    const form = document.getElementById(`qa-inline-edit-${qaId}`);
+    if (form) form.style.display = 'none';
+    return;
+  }
+
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
     await closeTabOutDupes();
@@ -1198,7 +1303,7 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast('Closed extra Tab Out tabs');
+    showToast('已关闭多余的 Tab Out 标签页');
     return;
   }
 
@@ -1260,7 +1365,7 @@ document.addEventListener('click', async (e) => {
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
 
-    showToast('Tab closed');
+    showToast('标签页已关闭');
     return;
   }
 
@@ -1276,7 +1381,7 @@ document.addEventListener('click', async (e) => {
       await saveTabForLater({ url: tabUrl, title: tabTitle });
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
+      showToast('保存失败，请重试');
       return;
     }
 
@@ -1295,7 +1400,7 @@ document.addEventListener('click', async (e) => {
       setTimeout(() => chip.remove(), 200);
     }
 
-    showToast('Saved for later');
+    showToast('已加入稍后查看');
     await renderDeferredColumn();
     return;
   }
@@ -1369,7 +1474,7 @@ document.addEventListener('click', async (e) => {
     if (idx !== -1) domainGroups.splice(idx, 1);
 
     const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    showToast(`已关闭 ${groupLabel} 的 ${urls.length} 个标签页`);
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
@@ -1408,7 +1513,7 @@ document.addEventListener('click', async (e) => {
       card.classList.add('has-neutral-bar');
     }
 
-    showToast('Closed duplicates, kept one copy each');
+    showToast('已关闭重复标签页，各保留一个');
     return;
   }
 
@@ -1428,7 +1533,7 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
+    showToast('全部标签页已关闭，清净了。');
     return;
   }
 });
@@ -1469,14 +1574,270 @@ document.addEventListener('input', async (e) => {
     );
 
     archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">没有找到相关结果</div>';
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
   }
 });
 
 
+
+
+
+function bundledFavicon(host) {
+  try {
+    var b = window.FAVICON_BUNDLE || {};
+    if (!host) return '';
+    return b[host] || b[host.replace(/^www\./, '')] || b['www.' + host] || '';
+  } catch { return ''; }
+}
+
+async function faviconForUrl(pageUrl) {
+  try {
+    if (!pageUrl) return '';
+    var host = new URL(pageUrl).hostname;
+    var bundled = bundledFavicon(host);
+    if (bundled) return bundled;
+    var key = 'favicon:v5:' + host;
+    var store = await chrome.storage.local.get(key);
+    if (store[key]) return store[key];
+    var res = await fetch('https://' + host + '/favicon.ico', { credentials: 'omit' });
+    if (!res.ok) return '';
+    var blob = await res.blob();
+    if (!blob || blob.size < 20 || blob.size > 300000) return '';
+    var dataUrl = await blobToDataUrl(blob);
+    await chrome.storage.local.set({ [key]: dataUrl });
+    return dataUrl;
+  } catch { return ''; }
+}
+
+function syncFavicon(pageUrl) {
+  try { return bundledFavicon(new URL(pageUrl).hostname); } catch { return ''; }
+}
+
 /* ----------------------------------------------------------------
-   INITIALIZE
+   QUICK ACCESS SITES — Frequently Used Websites
+   Stored in chrome.storage.local under "quickAccess" key.
+   Data shape:
+   [{ id: string, name: string, url: string }]
    ---------------------------------------------------------------- */
+
+const DEFAULT_QUICK_ACCESS = [
+  { id: 'qa-youtube',  name: 'YouTube',         url: 'https://www.youtube.com' },
+  { id: 'qa-bilibili', name: '哔哩哔哩',          url: 'https://www.bilibili.com' },
+  { id: 'qa-hit',      name: '哈尔滨工业大学',    url: 'https://www.hit.edu.cn' },
+  { id: 'qa-qtech',    name: '青岛理工大学',      url: 'https://www.qtech.edu.cn' },
+];
+
+async function getQuickAccessSites() {
+  try {
+    const { quickAccess } = await chrome.storage.local.get('quickAccess');
+    if (Array.isArray(quickAccess)) return quickAccess;
+    // First run: save defaults and return them
+    await chrome.storage.local.set({ quickAccess: DEFAULT_QUICK_ACCESS });
+    return DEFAULT_QUICK_ACCESS;
+  } catch {
+    return DEFAULT_QUICK_ACCESS;
+  }
+}
+
+async function saveQuickAccessSites(sites) {
+  try {
+    await chrome.storage.local.set({ quickAccess: sites });
+  } catch (err) {
+    console.warn('[tab-out] Could not save quick access sites:', err);
+  }
+}
+
+/**
+ * renderQuickAccess()
+ * 渲染常用网站磁贴网格。编辑模式下每个磁贴额外显示"删除"和"编辑"按钮。
+ */
+async function renderQuickAccess() {
+  const grid = document.getElementById('quickAccessGrid');
+  if (!grid) return;
+
+  const sites = await getQuickAccessSites();
+  const isEditMode = document.getElementById('qaEditBtn')?.classList.contains('editing');
+  grid.classList.toggle('editing', !!isEditMode);
+
+  if (sites.length === 0) {
+    grid.innerHTML = '<div class="qa-empty">还没有常用网站，点右上角 + 添加一个</div>';
+    return;
+  }
+
+  grid.innerHTML = sites.map(site => {
+    const faviconUrl = syncFavicon(site.url);
+    const safeId   = site.id.replace(/"/g, '&quot;');
+    const safeName = site.name.replace(/"/g, '&quot;');
+    const safeUrl  = site.url.replace(/"/g, '&quot;');
+    const initial  = (site.name || '?').trim().charAt(0).toUpperCase();
+
+    return `
+      <div class="qa-tile-wrap" data-qa-id="${safeId}">
+        <a class="qa-tile ${isEditMode ? 'qa-tile-editing' : ''}"
+           href="${isEditMode ? '#' : safeUrl}"
+           ${isEditMode ? '' : 'target="_blank" rel="noopener"'}
+           data-qa-id="${safeId}">
+          ${isEditMode ? `
+            <button class="qa-delete-btn" data-action="qa-delete" data-qa-id="${safeId}" title="删除">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+            </button>
+          ` : ''}
+          <div class="qa-tile-icon" data-qa-icon="${safeId}">
+            ${faviconUrl
+              ? `<img src="${faviconUrl}" alt="">`
+              : `<div class="qa-tile-fallback">${initial}</div>`}
+          </div>
+          <div class="qa-tile-name">${site.name}</div>
+          ${isEditMode ? `
+            <button class="qa-edit-tile-btn" data-action="qa-edit-tile" data-qa-id="${safeId}" title="修改名称/网址">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
+            </button>
+          ` : ''}
+        </a>
+        <div class="qa-inline-edit" id="qa-inline-edit-${safeId}" style="display:none"
+             data-qa-id="${safeId}" data-orig-name="${safeName}" data-orig-url="${safeUrl}">
+          <input class="qa-input qa-inline-name" type="text" value="${safeName}" placeholder="网站名称" maxlength="24">
+          <input class="qa-input qa-inline-url"  type="url"  value="${safeUrl}"  placeholder="网址">
+          <div class="qa-form-actions">
+            <button class="qa-confirm-btn qa-inline-save" data-action="qa-save-edit" data-qa-id="${safeId}">保存</button>
+            <button class="qa-cancel-btn  qa-inline-cancel" data-action="qa-cancel-edit" data-qa-id="${safeId}">取消</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // 异步补齐非内置图标（不阻塞首屏渲染）
+  sites.forEach(site => {
+    if (syncFavicon(site.url)) return;
+    faviconForUrl(site.url).then(function (dataUrl) {
+      if (!dataUrl) return;
+      const icon = document.querySelector('[data-qa-icon="' + site.id + '"]');
+      if (icon) icon.innerHTML = '<img src="' + dataUrl + '" alt="">';
+    }).catch(function () {});
+  });
+}
+
+
+
+
+// ---- Quick Access event handlers ----
+
+// Edit mode toggle
+document.getElementById('qaEditBtn')?.addEventListener('click', () => {
+  const btn = document.getElementById('qaEditBtn');
+  if (!btn) return;
+  btn.classList.toggle('editing');
+  btn.innerHTML = btn.classList.contains('editing')
+    ? `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg> 完成`
+    : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" /></svg> 编辑`;
+  renderQuickAccess();
+});
+
+// Show add form
+document.getElementById('qaAddBtn')?.addEventListener('click', () => {
+  const form = document.getElementById('qaAddForm');
+  if (!form) return;
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') {
+    document.getElementById('qaNameInput')?.focus();
+  }
+});
+
+// Cancel add form
+document.getElementById('qaCancelBtn')?.addEventListener('click', () => {
+  const form = document.getElementById('qaAddForm');
+  if (form) form.style.display = 'none';
+  const nameInput = document.getElementById('qaNameInput');
+  const urlInput  = document.getElementById('qaUrlInput');
+  if (nameInput) nameInput.value = '';
+  if (urlInput)  urlInput.value  = '';
+});
+
+// Confirm add
+document.getElementById('qaConfirmBtn')?.addEventListener('click', async () => {
+  const nameInput = document.getElementById('qaNameInput');
+  const urlInput  = document.getElementById('qaUrlInput');
+  const name = (nameInput?.value || '').trim();
+  let   url  = (urlInput?.value  || '').trim();
+
+  if (!name) { nameInput?.focus(); showToast('请输入网站名称'); return; }
+  if (!url)  { urlInput?.focus();  showToast('请输入网址');     return; }
+
+  // Auto-prepend https:// if missing
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+  try { new URL(url); } catch {
+    showToast('网址格式不正确');
+    urlInput?.focus();
+    return;
+  }
+
+  const sites = await getQuickAccessSites();
+  sites.push({ id: 'qa-' + Date.now(), name, url });
+  await saveQuickAccessSites(sites);
+
+  if (nameInput) nameInput.value = '';
+  if (urlInput)  urlInput.value  = '';
+  const form = document.getElementById('qaAddForm');
+  if (form) form.style.display = 'none';
+
+  await renderQuickAccess();
+  showToast(`已添加 ${name}`);
+});
+
+// Allow pressing Enter in inputs to confirm
+document.getElementById('qaUrlInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('qaConfirmBtn')?.click();
+});
+document.getElementById('qaNameInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('qaUrlInput')?.focus();
+});
+
+// Delete a site (delegated — runs inside the main click handler via data-action)
+// Handled below in the main event delegation block
+async function handleQaDelete(qaId) {
+  const sites = await getQuickAccessSites();
+  const idx = sites.findIndex(s => s.id === qaId);
+  if (idx === -1) return;
+  const removed = sites.splice(idx, 1)[0];
+  await saveQuickAccessSites(sites);
+  await renderQuickAccess();
+  showToast(`已删除 ${removed.name}`);
+}
+
+
+/* ----------------------------------------------------------------
+   DYNAMIC TAB UPDATES
+   监听浏览器标签页的增删改，自动刷新仪表板。
+   使用防抖（300ms）避免短时间内多次触发重复渲染。
+   ---------------------------------------------------------------- */
+
+let _refreshTimer = null;
+
+function scheduleDashboardRefresh() {
+  clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(async () => {
+    await renderStaticDashboard();
+  }, 300);
+}
+
+try {
+  chrome.tabs.onCreated.addListener(scheduleDashboardRefresh);
+  chrome.tabs.onRemoved.addListener(scheduleDashboardRefresh);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    // 只在 URL 或标题变化时刷新，忽略加载中间状态
+    if (changeInfo.url || changeInfo.title) {
+      scheduleDashboardRefresh();
+    }
+  });
+  chrome.tabs.onMoved.addListener(scheduleDashboardRefresh);
+  chrome.tabs.onAttached.addListener(scheduleDashboardRefresh);
+  chrome.tabs.onDetached.addListener(scheduleDashboardRefresh);
+} catch {
+  // 非扩展环境下静默失败
+}
+
 renderDashboard();
+renderQuickAccess();

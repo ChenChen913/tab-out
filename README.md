@@ -1,91 +1,88 @@
-# Tab Out
+# Tab Out · 个人改造版
 
-**Keep tabs on your tabs.**
+> **本项目基于开源项目 [zarazhangrui/tab-out](https://github.com/zarazhangrui/tab-out) 改造，不是原创作品。**
+>
+> - 原作者：**Zara**（X / Twitter：[@zarazhangrui](https://x.com/zarazhangrui)）
+> - 原项目：https://github.com/zarazhangrui/tab-out
+> - 许可证：MIT（见 [LICENSE](LICENSE)）
+>
+> 本仓库为原项目的 **fork**，仅用于个人学习和日常使用，保留原作者版权声明与 MIT 许可证，未用于任何商业用途。感谢原作者的优秀作品。
 
-Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
+## 这个版本改了什么
 
-No server. No account. No external API calls. Just a Chrome extension.
+在原项目基础上做了个人使用向的 UI 重构与功能增强：
 
----
+- **全新新标签页界面**：大号时钟 + 年月日/星期 + Google 搜索框，顶部只保留必要信息
+- **常用网站管理**：搜索框下方 ✎ 编辑按钮进入编辑模式，可**改名、改网址、删除、添加**
+- **图标本地缓存**：常用网站图标内置 base64（YouTube / B站 / 哈工大 / 青岛理工 / 研招网 / Bing / Google），新网站首次加载后缓存到本地，之后不再联网加载
+- **自动昼夜主题**：6:00–20:00 白天模式，20:00–6:00 黑夜模式，自动切换
+- **标签页分组卡片**：按域名自动分组，瀑布流布局；支持整组关闭、单标签关闭 / 稍后查看
+- **重复标签页检测**：同一 URL 开多个时提示并可一键清理
+- **常用网站单行横向滚动**：加很多常用网站也不会把标签页区域挤下去
+- **中文本地化**：界面文案以中文为主
 
-## Install with a coding agent
+## 实机效果
 
-Send your coding agent (Claude Code, Codex, etc.) this repo and say **"install this"**:
+| 黑夜模式 | 白天模式 |
+| --- | --- |
+| ![黑夜](screenshots/dark.png) | ![白天](screenshots/light.png) |
+
+| 同类标签页分组 | 大量常用网站 |
+| --- | --- |
+| ![分组](screenshots/grouped-tabs.png) | ![快捷访问](screenshots/quick-access.png) |
+
+## 安装方法（Chrome / Edge）
+
+本项目未上架扩展商店，使用「加载已解压的扩展程序」安装：
+
+1. 下载或 clone 本仓库到本地
+2. 打开 Chrome，地址栏进入 `chrome://extensions`
+3. 打开右上角的 **开发者模式**
+4. 点击 **加载已解压的扩展程序**，选择本仓库的 `extension` 文件夹
+5. 打开新标签页（Ctrl+T）即可看到效果
+
+> 更新扩展代码后，在 `chrome://extensions` 中点击该扩展的刷新按钮即可生效。
+
+## 使用说明
+
+- **时钟 / 日期**：自动显示，无需设置
+- **搜索框**：输入关键词回车 → Google 搜索；输入网址回车 → 直接打开
+- **常用网站**
+  - 点击图标打开网站
+  - 点搜索框下方 **✎** 进入编辑模式：每个图标右上角出现 **✎（修改名称/网址）** 和 **×（删除）**
+  - 点 **+** 添加新的常用网站
+- **标签页卡片**
+  - 点击标签标题 → 切到该标签页
+  - 悬停标签行 → 右侧出现「稍后查看 / 关闭」按钮
+  - 卡片底部「关闭全部 N 个标签页」→ 整组关闭
+  - 重复 URL 会显示「N 个重复」标记，可一键清理
+- **主题**：按时间自动切换，白天/黑夜无需手动设置
+
+## 项目结构
 
 ```
-https://github.com/zarazhangrui/tab-out
+tab-out/
+├── extension/              # Chrome 扩展本体（加载此目录）
+│   ├── manifest.json       # Manifest V3 配置
+│   ├── index.html          # 新标签页结构
+│   ├── style.css           # 原项目基础样式
+│   ├── style-v4.css        # 本改造版样式（主题/布局）
+│   ├── app.js              # 标签页分组、常用网站、稍后查看等逻辑
+│   ├── hero.js             # 时钟/日期/自动昼夜/搜索框
+│   ├── favicons-bundled.js # 内置常用网站图标（base64）
+│   ├── background.js       # 工具栏徽标
+│   └── icons/
+├── screenshots/            # 效果截图
+├── LICENSE                 # MIT（原作者版权）
+├── README.md
+└── AGENTS.md
 ```
 
-The agent will walk you through it. Takes about 1 minute.
+## 致谢
 
----
-
-## Features
-
-- **See all your tabs at a glance** on a clean grid, grouped by domain
-- **Homepages group** pulls Gmail inbox, X home, YouTube, LinkedIn, GitHub homepages into one card
-- **Close tabs with style** with swoosh sound + confetti burst
-- **Duplicate detection** flags when you have the same page open twice, with one-click cleanup
-- **Click any tab to jump to it** across windows, no new tab opened
-- **Save for later** bookmark tabs to a checklist before closing them
-- **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
-- **Expandable groups** show the first 8 tabs with a clickable "+N more"
-- **100% local** your data never leaves your machine
-- **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
-
----
-
-## Manual Setup
-
-**1. Clone the repo**
-
-```bash
-git clone https://github.com/zarazhangrui/tab-out.git
-```
-
-**2. Load the Chrome extension**
-
-1. Open Chrome and go to `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked**
-4. Navigate to the `extension/` folder inside the cloned repo and select it
-
-**3. Open a new tab**
-
-You'll see Tab Out.
-
----
-
-## How it works
-
-```
-You open a new tab
-  -> Tab Out shows your open tabs grouped by domain
-  -> Homepages (Gmail, X, etc.) get their own group at the top
-  -> Click any tab title to jump to it
-  -> Close groups you're done with (swoosh + confetti)
-  -> Save tabs for later before closing them
-```
-
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
-
----
-
-## Tech stack
-
-| What | How |
-|------|-----|
-| Extension | Chrome Manifest V3 |
-| Storage | chrome.storage.local |
-| Sound | Web Audio API (synthesized, no files) |
-| Animations | CSS transitions + JS confetti particles |
-
----
+- 原项目：[zarazhangrui/tab-out](https://github.com/zarazhangrui/tab-out) · 作者 [Zara](https://x.com/zarazhangrui)
+- 本项目仅在其基础上做个人化改造，所有原始设计版权归原作者所有
 
 ## License
 
-MIT
-
----
-
-Built by [Zara](https://x.com/zarazhangrui)
+MIT，详见 [LICENSE](LICENSE)。原项目版权声明予以保留。
