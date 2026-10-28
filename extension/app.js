@@ -20,6 +20,8 @@
    通过 Chrome 自带的 favicon 缓存读取（_favicon，本地、不联网），
    首次读取后转成 base64 存入 chrome.storage.local，以后直接读本地。
    ---------------------------------------------------------------- */
+const faviconFailedHosts = new Set();
+
 function localFaviconUrl(url, size) {
   try {
     if (!url) return '';
@@ -811,9 +813,8 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = syncFavicon(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <img class="chip-favicon" data-favicon-url="${safeUrl}" alt="">
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="稍后查看">
@@ -892,9 +893,8 @@ function renderDomainCard(group) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = syncFavicon(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <img class="chip-favicon" data-favicon-url="${safeUrl}" alt="">
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="稍后查看">
@@ -926,7 +926,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${isLanding ? '常用主页' : (group.label || friendlyDomain(group.domain))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -1080,7 +1080,6 @@ async function renderStaticDashboard() {
   const LANDING_PAGE_PATTERNS = [
     { hostname: 'mail.google.com', test: (p, h) =>
         !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
-    { hostname: 'x.com',               pathExact: ['/home'] },
     { hostname: 'www.linkedin.com',    pathExact: ['/'] },
     { hostname: 'github.com',          pathExact: ['/'] },
     { hostname: 'www.youtube.com',     pathExact: ['/'] },
@@ -1197,6 +1196,7 @@ async function renderStaticDashboard() {
     openTabsSectionCount.innerHTML = `${domainGroups.length} 个域名 &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} 关闭全部 ${realTabs.length} 个标签页</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
+    hydrateFavicons(openTabsMissionsEl);
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
   }
@@ -1593,27 +1593,67 @@ function bundledFavicon(host) {
 }
 
 async function faviconForUrl(pageUrl) {
+  var host = '';
   try {
     if (!pageUrl) return '';
-    var host = new URL(pageUrl).hostname;
+    host = new URL(pageUrl).hostname;
     var bundled = bundledFavicon(host);
     if (bundled) return bundled;
     var key = 'favicon:v5:' + host;
     var store = await chrome.storage.local.get(key);
     if (store[key]) return store[key];
-    var res = await fetch('https://' + host + '/favicon.ico', { credentials: 'omit' });
-    if (!res.ok) return '';
+    if (faviconFailedHosts.has(host)) return '';
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 3500);
+    var res;
+    try {
+      res = await fetch('https://' + host + '/favicon.ico', { credentials: 'omit', signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) { faviconFailedHosts.add(host); return ''; }
     var blob = await res.blob();
-    if (!blob || blob.size < 20 || blob.size > 300000) return '';
+    if (!blob || blob.size < 20 || blob.size > 300000) { faviconFailedHosts.add(host); return ''; }
     var dataUrl = await blobToDataUrl(blob);
     await chrome.storage.local.set({ [key]: dataUrl });
     return dataUrl;
-  } catch { return ''; }
+  } catch {
+    if (host) { try { faviconFailedHosts.add(host); } catch {} }
+    return '';
+  }
 }
 
 function syncFavicon(pageUrl) {
   try { return bundledFavicon(new URL(pageUrl).hostname); } catch { return ''; }
 }
+async function hydrateFavicons(root) {
+  try {
+    if (!root) return;
+    const imgs = Array.from(root.querySelectorAll('img[data-favicon-url]'));
+    if (!imgs.length) return;
+    const hostCache = {};
+    for (const img of imgs) {
+      const pageUrl = img.getAttribute('data-favicon-url');
+      if (!pageUrl) continue;
+      let host = '';
+      try { host = new URL(pageUrl).hostname; } catch {}
+      let dataUrl = syncFavicon(pageUrl);
+      if (!dataUrl && host) {
+        if (hostCache[host] === undefined) {
+          hostCache[host] = await faviconForUrl('https://' + host + '/');
+        }
+        dataUrl = hostCache[host];
+      }
+      if (dataUrl) {
+        img.src = dataUrl;
+      } else {
+        img.style.display = 'none';
+      }
+      img.removeAttribute('data-favicon-url');
+    }
+  } catch {}
+}
+
 
 /* ----------------------------------------------------------------
    QUICK ACCESS SITES — Frequently Used Websites

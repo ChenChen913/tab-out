@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Out",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "个人改造版新标签页：大时钟 + 搜索框 + 常用网站 + 标签页分组（基于 zarazhangrui/tab-out 改造）",
   "permissions": [
     "tabs",
